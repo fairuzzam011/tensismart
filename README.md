@@ -1,4 +1,3 @@
-@@ -0,0 +1,20 @@
 # TensiSmart
 ## Tentang TensiSmart
 TensiSmart adalah sebuah aplikasi inovatif berbasis R Programming yang dikembangkan untuk membantu masyarakat dalam memantau tekanan darah, menganalisis risiko hipertensi, dan mendapatkan rekomendasi kesehatan yang dipersonalisasi.
