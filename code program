@@ -1,0 +1,532 @@
+library(shiny)
+
+user_db_file <- "users_db.csv"
+
+read_users <- function() {
+  if (file.exists(user_db_file)) {
+    read.csv(user_db_file, stringsAsFactors = FALSE)
+  } else {
+    data.frame(username=character(), email=character(), password=character(), stringsAsFactors = FALSE)
+  }
+}
+
+save_user <- function(new_user) {
+  users <- read_users()
+  users <- rbind(users, new_user)
+  write.csv(users, user_db_file, row.names = FALSE)
+}
+
+ui <- fluidPage(
+  tags$head(
+    tags$style(HTML("
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #74ebd5 0%, #ACB6E5 100%);
+        margin: 0; padding: 0;
+        height: 100vh;
+        display: flex; justify-content: center; align-items: center;
+      }
+      .app-container {
+        background: white;
+        padding: 30px 40px;
+        border-radius: 12px;
+        box-shadow: 0 15px 25px rgba(0,0,0,0.2);
+        width: 640px;
+        max-width: 95vw;
+        max-height: 90vh;
+        overflow-y: auto;
+        text-align: center;
+      }
+      h2 {
+        margin-bottom: 20px;
+        color: #333;
+      }
+      label {
+        font-weight: 600;
+        margin-bottom: 6px;
+        display: block;
+        color: #444;
+        text-align: left;
+      }
+      input, select, .shiny-bound-input {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 15px;
+        border-radius: 8px;
+        border: 1.5px solid #ddd;
+        box-sizing: border-box;
+        font-size: 14px;
+        transition: 0.3s;
+      }
+      input:focus, select:focus {
+        border-color: #74ebd5;
+        outline: none;
+      }
+      .btn {
+        background: #74ebd5;
+        border: none;
+        color: white;
+        padding: 12px;
+        width: 100%;
+        font-size: 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.3s;
+        margin-bottom: 15px;
+      }
+      .btn:hover {
+        background: #5ac4be;
+      }
+      .toggle-link {
+        margin-top: 15px;
+        font-size: 14px;
+        color: #666;
+        cursor: pointer;
+        user-select: none;
+      }
+      .toggle-link:hover {
+        text-decoration: underline;
+      }
+      .message {
+        margin-bottom: 15px;
+        padding: 10px;
+        border-radius: 8px;
+        font-weight: 600;
+      }
+      .error {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+      .success {
+        background-color: #d4edda;
+        color: #155724;
+      }
+      #hasil_div {
+        overflow-x: auto;
+        white-space: pre-line;
+        max-height: 320px;
+        border: 1px solid #ddd;
+        padding: 15px;
+        background: #fafafa;
+        border-radius: 8px;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        text-align: left;
+      }
+      table, th, td {
+        border: 1px solid #ddd;
+        border-collapse: collapse;
+        padding: 8px;
+        font-size: 14px;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      .tab-content {
+        padding-top: 10px;
+      }
+      /* Flex container for Kuesioner Gaya Hidup tab to position buttons at bottom */
+      .kuesioner-container {
+        display: flex;
+        flex-direction: column;
+        height: 500px; /* Adjust as needed */
+      }
+      .kuesioner-inputs {
+        flex-grow: 1;
+        overflow-y: auto;
+        padding-right: 8px; /* for scrollbar space */
+      }
+      .kuesioner-buttons {
+        margin-top: auto;
+      }
+    "))
+  ),
+  div(class = "app-container",
+      uiOutput("ui_container")
+  )
+)
+
+server <- function(input, output, session) {
+  rv <- reactiveValues(
+    logged_in = FALSE,
+    user = NULL,
+    current_page = "login",
+    message = NULL,
+    message_type = NULL
+  )
+  
+  login_ui <- function() {
+    tagList(
+      h2("Login"),
+      div(class = paste("message",
+                        ifelse(rv$message_type=="error", "error",
+                               ifelse(rv$message_type=="success", "success", ""))),
+          textOutput("msg_login")),
+      textInput("login_username", "Username"),
+      passwordInput("login_password", "Password"),
+      actionButton("btn_login", "Login", class = "btn"),
+      div(class = "toggle-link",
+          "Belum punya akun? ", actionLink("switch_register", "Daftar sekarang"))
+    )
+  }
+  
+  register_ui <- function() {
+    tagList(
+      h2("Register"),
+      div(class = paste("message",
+                        ifelse(rv$message_type=="error", "error",
+                               ifelse(rv$message_type=="success", "success", ""))),
+          textOutput("msg_register")),
+      textInput("reg_username", "Username"),
+      textInput("reg_email", "Email"),
+      passwordInput("reg_password", "Password"),
+      actionButton("btn_register", "Daftar", class = "btn"),
+      div(class = "toggle-link",
+          "Sudah punya akun? ", actionLink("switch_login", "Login di sini"))
+    )
+  }
+  
+  app_ui <- function() {
+    tagList(
+      h2(paste0("Selamat datang, ", rv$user, "!")),
+      tabsetPanel(
+        tabPanel("Data Pribadi",
+                 textInput("nama", "Nama (Inisial):"),
+                 selectInput("gender", "Jenis Kelamin:", c("Laki-laki", "Perempuan")),
+                 selectInput("usia_group", "Usia:", c("0-24 tahun", "25-34 tahun", "35-44 tahun", "> 44 tahun")),
+                 numericInput("berat_badan_input", "Berat Badan (kg):", NA, min = 0, step = 0.1),
+                 numericInput("tinggi_badan_input", "Tinggi Badan (cm):", NA, min = 0, step = 0.1)
+        ),
+        tabPanel("Petunjuk",
+                 h4("Petunjuk Pengisian dan Skor"),
+                 tags$ul(
+                   tags$li("Frekuensi olahraga (hari/minggu): 0-1 = tinggi risiko (0.1), 2-4 = sedang (0.05), 5-7 = rendah (0)"),
+                   tags$li("Durasi tidur (jam/hari) dengan skor risiko sesuai tabel: ≤4 (0.1), 4-5 (0.08), 5-6 (0.06), 6-7 (0.04), 7-8 (0.02), 8-9 (0)"),
+                   tags$li("Detak jantung: >100 bpm = 0.1, <60 bpm = 0.05, 60-100 bpm = 0"),
+                   tags$li("Riwayat penyakit keluarga: pilih salah satu"),
+                   tags$ul(
+                     tags$li("Tidak ada riwayat penyakit jantung, stroke, atau gagal jantung"),
+                     tags$li("Ada 1 anggota keluarga yang mengalami penyakit jantung"),
+                     tags$li("Ada lebih dari 1 anggota keluarga dengan penyakit jantung, stroke, atau gagal jantung")
+                   ),
+                   tags$li("Merokok: Ya (0.1), Tidak (0)"),
+                   tags$li("Usia: >44 tahun (0.1), 35-44 (0.07), 25-34 (0.02), 0-24 (0)"),
+                   tags$li("Faktor stres: Selalu (0.1), Sering (0.05), Jarang (0)"),
+                   tags$li("Riwayat penyakit autoimun: Ya (0.1), Tidak (0)"),
+                   tags$li("Obesitas (BMI): <18.5=0, 18.5-24.9=0.03, 25-29.9=0.06, ≥30=0.10"),
+                   tags$li("Pola makan: tiap jenis makanan tidak sehat menambah 0.01, maksimal 0.1")
+                 )
+        ),
+        tabPanel("Kuesioner Gaya Hidup",
+                 div(class = "kuesioner-container",
+                     div(class = "kuesioner-inputs",
+                         numericInput("frekuensi_olahraga", "Frekuensi olahraga (hari per minggu):", value = 3, min = 0, max = 7),
+                         numericInput("durasi_tidur", "Durasi tidur (jam per hari):", value = 7, min = 0, max = 24, step = 0.1),
+                         numericInput("detak_jantung", "Detak jantung (bpm):", value = 70, min = 30, max = 200),
+                         selectInput("riwayat_keluarga", "Riwayat penyakit keluarga:",
+                                     c("Tidak ada riwayat",
+                                       "Ada 1 anggota keluarga",
+                                       "Ada lebih dari 1 anggota keluarga")),
+                         selectInput("merokok", "Merokok:", c("Tidak", "Ya")),
+                         selectInput("faktor_stres", "Faktor stres:", c("Jarang", "Sering", "Selalu")),
+                         selectInput("riwayat_autoimun", "Riwayat penyakit autoimun:", c("Tidak", "Ya")),
+                         numericInput("berat_badan_input", "Berat badan (kg):", value = NA, min = 0, step = 0.1),
+                         numericInput("tinggi_badan_input", "Tinggi badan (cm):", value = NA, min = 0, step = 0.1),
+                         checkboxGroupInput("makanan_konsumsi", "Pilih makanan/minuman tidak sehat yang dikonsumsi kemarin:",
+                                            choices = c("Daging olahan",
+                                                        "Minuman manis",
+                                                        "Keju",
+                                                        "Saus bumbu",
+                                                        "Makanan kaleng",
+                                                        "Gorengan",
+                                                        "Mie instan/pasta",
+                                                        "Makanan cepat saji",
+                                                        "Kopi/kafein",
+                                                        "Alkohol"))
+                     ),
+                     div(class = "kuesioner-buttons",
+                         actionButton("submit", "Lihat Hasil", class = "btn"),
+                         actionButton("btn_logout", "Logout", class = "btn")
+                     )
+                 )
+        ),
+        tabPanel("Hasil Skor",
+                 div(id = "hasil_div", verbatimTextOutput("hasil"))
+        ),
+        tabPanel("Ringkasan Jawaban",
+                 tableOutput("tabel_jawaban")
+        )
+      )
+    )
+  }
+  
+  output$ui_container <- renderUI({
+    if(rv$logged_in) {
+      app_ui()
+    } else if(rv$current_page == "login") {
+      login_ui()
+    } else {
+      register_ui()
+    }
+  })
+  
+  output$msg_login <- renderText({
+    if(!is.null(rv$message) && rv$message_type %in% c("error","success") && rv$current_page == "login"){
+      rv$message
+    } else {
+      ""
+    }
+  })
+  
+  output$msg_register <- renderText({
+    if(!is.null(rv$message) && rv$message_type %in% c("error","success") && rv$current_page == "register"){
+      rv$message
+    } else {
+      ""
+    }
+  })
+  
+  observeEvent(input$switch_register, {
+    rv$current_page <- "register"
+    rv$message <- NULL
+    rv$message_type <- NULL
+  })
+  
+  observeEvent(input$switch_login, {
+    rv$current_page <- "login"
+    rv$message <- NULL
+    rv$message_type <- NULL
+  })
+  
+  observeEvent(input$btn_login, {
+    users <- read_users()
+    username <- trimws(input$login_username)
+    password <- input$login_password
+    if(username == "" || password == "") {
+      rv$message <- "Isi username dan password dengan benar."
+      rv$message_type <- "error"
+      return()
+    }
+    user_row <- users[users$username == username & users$password == password, ]
+    if(nrow(user_row) == 1) {
+      rv$logged_in <- TRUE
+      rv$user <- username
+      rv$message <- NULL
+      rv$message_type <- NULL
+    } else {
+      rv$message <- "Username atau password salah."
+      rv$message_type <- "error"
+    }
+  })
+  
+  observeEvent(input$btn_register, {
+    users <- read_users()
+    username <- trimws(input$reg_username)
+    email <- trimws(input$reg_email)
+    password <- input$reg_password
+    if(username == "" || email == "" || password == "") {
+      rv$message <- "Isi semua kolom dengan benar."
+      rv$message_type <- "error"
+      return()
+    }
+    if(username %in% users$username) {
+      rv$message <- "Username sudah digunakan."
+      rv$message_type <- "error"
+      return()
+    }
+    if(email %in% users$email) {
+      rv$message <- "Email sudah digunakan."
+      rv$message_type <- "error"
+      return()
+    }
+    if(!grepl("^\\S+@\\S+\\.\\S+$", email)) {
+      rv$message <- "Email tidak valid."
+      rv$message_type <- "error"
+      return()
+    }
+    new_user <- data.frame(username = username, email = email, password = password, stringsAsFactors = FALSE)
+    save_user(new_user)
+    rv$message <- "Pendaftaran berhasil! Silakan login."
+    rv$message_type <- "success"
+    rv$current_page <- "login"
+  })
+  
+  observeEvent(input$btn_logout, {
+    rv$logged_in <- FALSE
+    rv$user <- NULL
+    rv$current_page <- "login"
+    rv$message <- "Anda telah logout."
+    rv$message_type <- "success"
+  })
+  
+  observeEvent(input$submit, {
+    fo <- input$frekuensi_olahraga
+    score_olahraga <- ifelse(fo <= 1, 0.1, ifelse(fo <= 4, 0.05, 0))
+    
+    dt <- input$durasi_tidur
+    score_tidur <- ifelse(
+      dt <= 4, 0.1,
+      ifelse(dt <= 5, 0.08,
+             ifelse(dt <= 6, 0.06,
+                    ifelse(dt <= 7, 0.04,
+                           ifelse(dt <= 8, 0.02, 0))))
+    )
+    
+    dj <- input$detak_jantung
+    score_detak <- ifelse(dj > 100, 0.1, ifelse(dj < 60, 0.05, 0))
+    
+    rkel <- input$riwayat_keluarga
+    score_keluarga <- switch(rkel,
+                             "Tidak ada riwayat" = 0,
+                             "Ada 1 anggota keluarga" = 0.05,
+                             "Ada lebih dari 1 anggota keluarga" = 0.1,
+                             0)
+    
+    merokok <- input$merokok
+    score_merokok <- ifelse(merokok == "Ya", 0.1, 0)
+    
+    usia <- input$usia_group
+    score_usia <- switch(usia,
+                         "> 44 tahun" = 0.10,
+                         "35-44 tahun" = 0.07,
+                         "25-34 tahun" = 0.02,
+                         "0-24 tahun" = 0)
+    
+    stres <- input$faktor_stres
+    score_stres <- switch(stres,
+                          "Selalu" = 0.1,
+                          "Sering" = 0.05,
+                          "Jarang" = 0)
+    
+    autoimun <- input$riwayat_autoimun
+    score_autoimun <- ifelse(autoimun == "Ya", 0.1, 0)
+    
+    berat <- input$berat_badan_input
+    tinggi <- input$tinggi_badan_input
+    bmi <- NA_real_
+    score_bmi <- NA_real_
+    if (!is.null(berat) && !is.na(berat) && !is.null(tinggi) && !is.na(tinggi) && tinggi > 0) {
+      bmi <- berat / ((tinggi/100)^2)
+      score_bmi <- ifelse(
+        bmi < 18.5, 0,
+        ifelse(bmi < 25, 0.03,
+               ifelse(bmi < 30, 0.06, 0.1))
+      )
+    } else {
+      score_bmi <- NA
+    }
+    
+    makan <- input$makanan_konsumsi
+    n_makan <- ifelse(is.null(makan), 0, length(makan))
+    score_makan <- min(0.01 * n_makan, 0.1)
+    
+    gender <- input$gender
+    score_gender <- ifelse(gender == "Laki-laki", 0.07, 0.03)
+    
+    scores_list <- c(score_olahraga, score_tidur, score_detak, score_keluarga,
+                     score_merokok, score_usia, score_stres, score_autoimun,
+                     score_bmi, score_makan, score_gender)
+    
+    if (any(is.na(scores_list))) {
+      total_score <- NA
+      warning_bmi <- TRUE
+    } else {
+      total_score <- sum(scores_list)
+      warning_bmi <- FALSE
+    }
+    
+    risk_cat <- ifelse(is.na(total_score), "Informasi Berat & Tinggi Badan diperlukan untuk perhitungan lengkap",
+                       ifelse(total_score < 0.3, "Risiko Rendah",
+                              ifelse(total_score <= 0.6, "Risiko Sedang", "Risiko Tinggi")))
+    
+    rekomendasi <- switch(risk_cat,
+                          "Risiko Rendah" = paste(
+                            "Rekomendasi Rendah\nGood job!! Pola hidup dan riwayat kesehatanmu menunjukkan kamu berpotensi rendah menderita penyakit jantung. ",
+                            "Keep up kebiasaan baikmu yang mendukung pola hidup sehat dan semangat terus mempertahankan risiko rendah penyakit jantungmu. ",
+                            "Meski begitu, kamu jangan lupa untuk tetap rutin periksa kesehatan setidaknya 1 hingga 2 kali dalam setahun agar kamu tetap aware dengan kondisi kesehatanmu."
+                          ),
+                          "Risiko Sedang" = paste(
+                            "Rekomendasi Sedang\nPotensi kamu menderita penyakit jantung tergolong rendah. ",
+                            "Hasil kamu menunjukkan ada beberapa faktor yang menempatkan kamu di kategori risiko ini. ",
+                            "Sebaiknya kamu semakin memperhatikan kesehatanmu mulai dari kebiasaan sehari-hari. Mulailah dari langkah sederhana dengan:\n",
+                            "- mengurangi makanan berminyak, instan, dan terlalu banyak gula\n",
+                            "- Memberhentikan kebiasaan merokok secara pelan-pelan\n",
+                            "- Menerapkan jam tidur cukup dengan pola yang juga teratur\n",
+                            "- menambah frekuensi aktivitas fisik seperti olahraga kardio sederhana seperti jalan cepat atau jogging santai\n",
+                            "- mencari kebiasaan baru untuk mengontrol level stress\n",
+                            "- memeriksa kesehatan ke dokter setidaknya 2-3 kali dalam setahun untuk memonitor perkembangan kesehatan.\n",
+                            "Lakukanlah hal-hal tersebut agar diri kamu semakin jauh dari potensi menderita penyakit jantung. ",
+                            "Semangat dalam menerapkan pola kehidupan sehat, semua usahamu pasti membuahkan hasil positif untuk jangka panjang!!"
+                          ),
+                          "Risiko Tinggi" = paste(
+                            "Rekomendasi Tinggi\nHasil evaluasi menunjukkan bahwa kamu termasuk dalam kategori risiko tinggi terhadap penyakit jantung. ",
+                            "Ini artinya, faktor-faktor seperti riwayat keluarga, tekanan darah tinggi, kolesterol tidak terkontrol, diabetes, kebiasaan merokok, obesitas, atau gaya hidup tidak aktif telah menempatkan kamu dalam kondisi yang perlu perhatian medis serius. ",
+                            "Tapi kabar baiknya, banyak dari faktor ini masih bisa dikendalikan jika kamu mulai bertindak sekarang. ",
+                            "Langkah-langkah yang dapat kamu ambil untuk menurunkan potensi kamu terkena penyakit jantung antara lain:\n",
+                            "- Memeriksakan diri ke dokter jantung (kardiolog)\n",
+                            "- Apabila memungkinkan, melakukan pemeriksaan lengkap dengan alat-alat seperti tes treadmill dan elektrokardiogram untuk mendeteksi irama jantung\n",
+                            "- Memberhentikan kebiasaan merokok apabila perokok aktif dan hindari orang-orang yang merokok agar tidak menjadi perokok pasif\n",
+                            "- Menerapkan pola makan sehat jantung atau mediterranean diet yang rendah lemak dan rendah sodium, serta memperbanyak konsumsi serat dan protein\n",
+                            "- Mulai melakukan program penurunan berat badan yang ketat dan terkontrol\n",
+                            "- Menerapkan kebiasaan olahraga teratur mulai dari olahraga kardio dan angkat beban ringan, lalu tingkatkan intensitas secara bertahap\n",
+                            "- Menyempatkan pemantauan tanda vital sendiri di rumah dengan alat pengukur tekanan darah dan smartwatch\n",
+                            "- Mengelola stress dan kesehatan mental lebih baik lagi dengan meditasi\n",
+                            "- Membuat jadwal rutin kontrol ke dokter tiap 3 sampai 6 bulan\n",
+                            "- Meminum obat secara teratur apabila direkomendasikan dokter\n",
+                            "Kamu pasti bisa menurunkan potensimu terkena penyakit jantung dengan dedikasi yang kuat. ",
+                            "Mulailah dari sekarang, karena setiap langkah kecil hari ini adalah perlindungan besar untuk jantungmu di masa depan."
+                          ),
+                          ""
+    )
+    
+    output$hasil <- renderText({
+      paste0(
+        "Hasil Penilaian Risiko Penyakit Jantung\n\n",
+        "Nama: ", ifelse(is.null(input$nama) || input$nama == "", "-", input$nama), "\n",
+        "Jenis Kelamin: ", ifelse(is.null(input$gender), "-", input$gender), "\n",
+        "Usia: ", ifelse(is.null(input$usia_group), "-", input$usia_group), "\n",
+        "Berat Badan: ", ifelse(is.na(berat), "-", berat), " kg\n",
+        "Tinggi Badan: ", ifelse(is.na(tinggi), "-", tinggi), " cm\n",
+        if (!is.na(bmi)) paste0("Indeks Massa Tubuh (BMI): ", round(bmi,1), "\n") else "",
+        "Frekuensi Olahraga (hari/minggu): ", ifelse(is.null(fo), "-", fo), "\n",
+        "Durasi Tidur (jam): ", ifelse(is.null(dt), "-", dt), "\n",
+        "Detak Jantung (bpm): ", ifelse(is.null(dj), "-", dj), "\n",
+        "Riwayat Penyakit Keluarga: ", ifelse(is.null(rkel), "-", rkel), "\n",
+        "Merokok: ", ifelse(is.null(merokok), "-", merokok), "\n",
+        "Faktor Stres: ", ifelse(is.null(stres), "-", stres), "\n",
+        "Riwayat Penyakit Autoimun: ", ifelse(is.null(autoimun), "-", autoimun), "\n",
+        "Pola Makan Tidak Sehat (jumlah jenis): ", n_makan, "\n\n",
+        ifelse(warning_bmi, "Catatan: Berat dan Tinggi Badan diperlukan untuk menghitung BMI dan skor obesitas secara akurat.\n\n", ""),
+        "Total Skor Risiko: ", ifelse(is.na(total_score), "-", sprintf("%.3f", total_score)), "\n",
+        "Kategori Risiko: ", risk_cat, "\n\n",
+        "Rekomendasi:\n", rekomendasi
+      )
+    })
+    
+    output$tabel_jawaban <- renderTable({
+      data.frame(
+        Parameter = c(
+          "Frekuensi Olahraga (hari/minggu)", "Durasi Tidur (jam)", "Detak Jantung (bpm)",
+          "Riwayat Penyakit Keluarga", "Merokok", "Usia", "Faktor Stres",
+          "Riwayat Penyakit Autoimun", "Berat Badan (kg)", "Tinggi Badan (cm)",
+          "BMI", "Jumlah Pola Makan Tidak Sehat", "Skor Olahraga",
+          "Skor Tidur", "Skor Detak Jantung", "Skor Riwayat Keluarga", "Skor Merokok",
+          "Skor Usia", "Skor Stres", "Skor Autoimun", "Skor Obesitas", "Skor Makan", "Skor Gender", "Total Skor"
+        ),
+        Nilai = c(
+          fo, dt, dj,
+          rkel, merokok, usia, stres,
+          autoimun, ifelse(is.na(berat), "-", berat), ifelse(is.na(tinggi), "-", tinggi),
+          ifelse(is.na(bmi), "-", round(bmi,1)), n_makan,
+          round(score_olahraga,3), round(score_tidur,3), round(score_detak,3), round(score_keluarga,3), round(score_merokok,3),
+          round(score_usia,3), round(score_stres,3), round(score_autoimun,3), ifelse(is.na(score_bmi), "-", round(score_bmi,3)),
+          round(score_makan,3), round(score_gender,3), ifelse(is.na(total_score), "-", round(total_score,3))
+        ),
+        stringsAsFactors = FALSE
+      )
+    })
+  })
+}
+
+shinyApp(ui, server)
